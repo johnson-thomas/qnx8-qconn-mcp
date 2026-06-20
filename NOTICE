@@ -1,0 +1,44 @@
+qnx8-qconn-mcp
+Copyright 2026 Johnson Thomas
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+------------------------------------------------------------------------------
+Attributions and provenance
+------------------------------------------------------------------------------
+
+This project is an independent, clean-room reimplementation of publicly
+documented QNX interfaces (the qconn target-agent wire protocol and the pdebug
+DSMSG debug protocol) for interoperability. It contains no QNX source code and
+no QNX SDK files.
+
+The protocol understanding was derived and cross-checked from the following
+public sources:
+
+* rpdebug_qnx (rpdbg.py) — Mandiant
+  https://github.com/mandiant/rpdebug_qnx
+  Licensed under the Apache License, Version 2.0.
+  Used as a reference for the QNX pdebug DSMSG framing, checksum, and the
+  process-memory-read message layout.
+
+* qcl — Sasho Zbirov (zayfod)
+  https://github.com/zayfod/qcl
+  Licensed under the MIT License.
+  Used as a reference for the qconn broker / launcher / file / cntl services
+  and the overall wire protocol.
+
+* QNX Neutrino public documentation (qnx.com developer docs) — the pdebug
+  utility, the System Information perspective, and the sys/debug.h debug
+  constants (e.g. _DEBUG_BREAK_*, _DEBUG_RUN_*) used as protocol facts.
+
+* GNU GDB QNX Neutrino target support (GPL), including the 2003 gdb-patches
+  submission adding the pdebug protocol, as a public description of the
+  protocol. No GDB source was copied into this project.
+
+* nmap qconn-exec.nse and the Metasploit qnx/qconn/qconn_exec module, as
+  public descriptions of the qconn launcher exec behaviour.
+
+QNX, Neutrino, and Momentics are trademarks of BlackBerry Limited. This project
+is not affiliated with, sponsored by, or endorsed by BlackBerry Limited. Those
+names are used only nominatively to describe the systems this software
+interoperates with.

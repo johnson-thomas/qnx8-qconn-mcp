@@ -1,0 +1,4 @@
+# QEMU test images are large binary blobs from openqnx; do not commit.
+qnxfs.img
+qnx.ifs
+*.qcow2

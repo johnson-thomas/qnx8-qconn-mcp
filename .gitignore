@@ -1,0 +1,11 @@
+/bin/
+*.log
+.DS_Store
+__pycache__/
+*.pyc
+# Cross-compiled QNX target binary (build artifact; source is checked in)
+/test/dbgtarget/dbgtarget
+
+# Local developer notes / scratch README (not for publishing)
+README.local.md
+*.local.md

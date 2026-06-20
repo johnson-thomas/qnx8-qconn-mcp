@@ -1,0 +1,32 @@
+# Example configuration for qconn-mcp.
+# Precedence (low -> high): this file < environment variables < command-line flags.
+# Load with:  qconn-mcp --config configs/config.example.yaml
+# or:         QCONN_CONFIG=configs/config.example.yaml qconn-mcp
+
+# --- qconn target -----------------------------------------------------------
+# The QNX machine running the qconn daemon. For local mock testing use
+# 127.0.0.1 and point at mock-qconn; for a real QNX8 board use its IP.
+qconn_host: 127.0.0.1
+qconn_port: 8000
+timeout: 30s            # per-operation I/O timeout
+
+# --- MCP Streamable HTTP transport ------------------------------------------
+bind_addr: 127.0.0.1:8077   # keep on localhost; qconn is unauthenticated+root
+path: /mcp
+token: ""                   # if set, clients must send: Authorization: Bearer <token>
+
+# --- Debug (pdebug / GDB-RSP) bridge ----------------------------------------
+debug_port: 8001               # TCP port pdebug is told to listen on
+pdebug_cmd: "on -d pdebug %d"  # launch template; %d = debug_port. `on -d` keeps
+                               # pdebug alive after the launcher session closes.
+                               # The debug_* tools speak the real QNX DSMSG
+                               # protocol to pdebug (validated on QNX 8 hardware).
+debug_serial: ""               # serial device for the DSMSG transport instead of
+                               # TCP (e.g. /dev/ttyUSB1); empty = use TCP.
+debug_baud: 115200             # baud rate for debug_serial
+                               # itself (see STATUS.md).
+
+# --- Logging / observability ------------------------------------------------
+log_level: info             # debug | info | warn | error
+log_format: text            # text | json
+trace: false                # wire-level hex/ASCII dumps of every qconn/RSP frame
