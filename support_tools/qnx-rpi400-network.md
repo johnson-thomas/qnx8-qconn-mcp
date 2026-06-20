@@ -40,35 +40,41 @@ ifconfig genet0 media 1000baseT mediaopt full-duplex
 This immediately flips genet0 to `status: active` and the link works
 bidirectionally.
 
-## Post-boot bring-up
+## Permanent fix (no manual step at boot)
 
-The image is configured for DHCP and runs the interface bring-up
-(`/system/bin/start_net.sh`) too early in boot (link not ready). A helper was
-installed on the writable `/data` partition:
+The stock `/system/bin/start_net.sh` does `if_up -r 20 genet0` and waits for a
+link that never comes up (the stuck autoneg above), and defaults to DHCP — which
+has no server on this direct link. The result was that the network had to be
+brought up by hand over the serial console after every boot.
 
-```sh
-# /data/netup.sh
-ifconfig genet0 up
-ifconfig genet0 media 1000baseT mediaopt full-duplex   # the fix
-ifconfig genet0 192.168.2.10 netmask 255.255.255.0
-```
-
-After each boot, run it over the serial console:
+This is fixed permanently by replacing `start_net.sh` (the `/system` partition is
+writable and persistent) with [`start_net.sh`](start_net.sh) in this directory,
+which **forces the media and retries until the link is active**, then applies the
+static IP. Install it on the target:
 
 ```sh
-sh /data/netup.sh
+cp /system/bin/start_net.sh /system/bin/start_net.sh.orig   # once, to keep a backup
+# copy support_tools/start_net.sh to the board, then:
+cp /tmp/start_net.sh.new /system/bin/start_net.sh
+chmod +x /system/bin/start_net.sh
+# static IP, read by start_net.sh from the (persistent) settings file:
+sed -i 's/^IP_ADDR=.*/IP_ADDR=192.168.2.10/' /data/var/etc/settings/network
 ```
 
-Then qconn is reachable at `192.168.2.10:8000` and the MCP server can be pointed
-at it:
+`/data/var/etc/settings/network` is only overwritten by `copy_settings.sh` when
+`/boot/network` is **newer** (`-nt`), and `/boot/network` carries no `IP_ADDR`
+line, so this static IP persists across reboots.
+
+**Verified:** after `shutdown` (which reboots), the board comes up with
+`192.168.2.10` and `media 1000baseT <full-duplex>` automatically — no serial
+intervention — and qconn is reachable:
 
 ```bash
 ./bin/qconn-mcp --qconn-host 192.168.2.10 --qconn-port 8000 --bind 127.0.0.1:8077
 # verify: python3 -c "import socket;s=socket.create_connection(('192.168.2.10',8000));print(s.recv(16))"  # -> b'QCONN\r\n'
 ```
 
-(Reboot the board from the serial console with `shutdown`, which reboots; the SD
-image then needs `sh /data/netup.sh` again. The host side is persistent.)
+The host side (`enP7s7` = `192.168.2.1/24`) is already persistent.
 
 ## Serial console as recovery / fallback
 
