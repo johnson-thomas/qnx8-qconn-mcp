@@ -109,10 +109,23 @@ pdebug-over-serial session is **not** hardware-validated here because the board'
 only UART is the system console (`/dev/ttyUSB0`); it needs a dedicated serial
 line. Use TCP on this board.
 
-**Not yet added — launch-under-debugger (DSMSG `Load`, cmd 4):** launching a fresh
-process under the debugger currently fails on the target with `Remote (spawn
-error): No such file or directory` — a target/pdebug spawn-environment issue.
-Deferred; attach-based debugging (above) is complete. `Handlesig` (signal
+**Not yet added — launch-under-debugger (DSMSG `Load`, cmd 4).** Diagnosed in
+detail:
+
+- The SDK gdb `run` failure (`Remote (spawn error): No such file or directory`)
+  is because gdb puts the **host** file path in the `Load` message — `set remote
+  exec-file` is ineffective for the `nto` target — so pdebug `ENOENT`s a path that
+  exists only on the host. Not a target/pdebug fault.
+- The `Load` body is `argc:int32 envc:int32` then the NUL-separated cmdline. A
+  bare `Load` needs `argc >= 1` (argc=0 → `EINVAL`).
+- Even with `argc=1` and a valid **target** path, pdebug started via
+  `on -d pdebug <port>` returns `ENOENT` for a bare `Load` — including for
+  `/proc/boot/ksh`, which definitely exists. So a single `Load` message is not
+  enough: the executable almost certainly has to be **uploaded to pdebug via the
+  DSMSG file service** (`Fileopen`/`Filewr`, what Momentics/gdb's "upload" does)
+  before `Load`. Implementing that upload preamble is the remaining work.
+
+Attach-based debugging (above) is complete and unaffected. `Handlesig` (signal
 disposition table) and `Mapinfo` are likewise pending.
 
 The separate `internal/debug` package remains a GDB-RSP bridge for
