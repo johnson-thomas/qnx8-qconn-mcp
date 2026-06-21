@@ -29,6 +29,7 @@ without QNX hardware.
 - [Limitations & roadmap](#limitations--roadmap)
 - [License & provenance](#license--provenance)
 - [Sources & references](#sources--references)
+- [Appendix: using the QNX SDK on an aarch64 host (via box64)](#appendix-using-the-qnx-sdk-on-an-aarch64-host-via-box64)
 
 ---
 
@@ -140,13 +141,19 @@ In an MCP client (e.g. Claude Code), add an HTTP MCP server pointing at
 
 ### Building target binaries (optional, QNX SDK)
 
-To build QNX target binaries you need the QNX SDK toolchain. On an aarch64 host
-the x86-64 SDK tools can be run under [box64](https://github.com/ptitSeb/box64):
+To build programs for the QNX target you need the QNX Software Development
+Platform (SDK). The host tools (`qcc`, `q++`, the cross GDB) are **x86-64**
+binaries, so this is the standard, supported setup on an **x86-64** development
+machine:
 
 ```bash
-source ~/qnx800/qnxsdp-env.sh
-box64 $QNX_HOST/usr/bin/qcc -Vgcc_ntoaarch64le -g -O0 -o myprog myprog.c
+source ~/qnx800/qnxsdp-env.sh                          # sets QNX_HOST / QNX_TARGET / PATH
+qcc -Vgcc_ntoaarch64le -g -O0 -o myprog myprog.c       # aarch64 target
+# or for an x86-64 target:  qcc -Vgcc_ntox86_64 ...
 ```
+
+(Running the SDK on an **aarch64** host is possible too — see
+[Appendix: using the QNX SDK on an aarch64 host](#appendix-using-the-qnx-sdk-on-an-aarch64-host-via-box64).)
 
 ---
 
@@ -267,3 +274,46 @@ systems this software interoperates with.
 - `vocho/openqnx` (QNX ~6.4 sources) — `/proc`, `pidin`, `pdebug`, `fcntl.h`.
 - GNU GDB QNX Neutrino target support.
 - Official Go MCP SDK: `github.com/modelcontextprotocol/go-sdk`.
+
+---
+
+## Appendix: using the QNX SDK on an aarch64 host (via box64)
+
+The standard QNX SDK is **x86-64 only** — there is no aarch64 build of the host
+toolchain. If your development machine is **aarch64** (e.g. an Apple-silicon or
+ARM Linux box, or an ARM CI runner), you can still run the x86-64 SDK tools
+through the [box64](https://github.com/ptitSeb/box64) x86-64 emulator. This works
+but is **not an official QNX configuration** — treat it as a convenience.
+
+Setup:
+
+```bash
+# box64 must be installed and on PATH
+source ~/qnx800/qnxsdp-env.sh
+export BOX64_PATH=$QNX_HOST/usr/bin          # so box64 finds the SDK's child tools
+
+# cross-compile a target binary
+box64 $QNX_HOST/usr/bin/qcc -Vgcc_ntoaarch64le -g -O0 -o myprog myprog.c
+
+# run the cross GDB (e.g. for protocol/debug work)
+box64 $QNX_HOST/usr/bin/ntoaarch64-gdb-14.2 ...
+```
+
+This project was, in fact, developed and validated this way (aarch64 host →
+box64 → x86-64 QNX SDK → real QNX 8 aarch64 target).
+
+### Notes & limitations
+
+- **Unofficial / unsupported.** box64 is third-party emulation; QNX support and
+  warranties do not cover it. Use a native x86-64 host for production work.
+- **Performance.** Emulated `qcc`/GDB are slower than native; fine for building
+  small programs and interactive debugging, noticeable on large builds.
+- **Child processes.** `qcc` spawns sub-tools (`cc1`, `as`, `ld`); set
+  `BOX64_PATH` so box64 locates them, otherwise compiles fail to find the
+  backend.
+- **Mixed-arch confusion.** The SDK host tools are x86-64 ELF; the *target*
+  binaries they produce are QNX aarch64 (or x86-64) ELF. Don't try to run target
+  binaries on the host or vice versa.
+- **The `qconn-mcp` server itself needs none of this.** It is plain Go and builds
+  and runs natively on any Go-supported host (including aarch64); box64 is only
+  for the QNX **SDK** (compiler / cross-GDB), not for this server.
