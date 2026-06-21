@@ -1,0 +1,5 @@
+# Compiled benchmark binaries (build with qcc; not committed)
+qnxbench
+qnxbench.aarch64
+qnxbench.x86_64
+*.o
