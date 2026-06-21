@@ -385,6 +385,65 @@ func errnoString(b []byte) string {
 	return fmt.Sprintf("target errno %d", binary.LittleEndian.Uint32(b))
 }
 
+// MapSegment is one mapped segment of a process (from MapInfo): its virtual
+// load address and size. For a position-independent executable the lowest-address
+// code segment gives the load base for computing runtime addresses.
+type MapSegment struct {
+	Vaddr uint64 `json:"vaddr"`
+	Size  uint64 `json:"size"`
+}
+
+// MapInfo returns the memory map of process pid (DSMSG cmd 0x1b, the form the SDK
+// gdb uses to discover load addresses). The raw reply is an array of 24-byte
+// entries {pid[4], id[4], vaddr[8], size[8]}; ParseMapInfo extracts the segments.
+func (c *Client) MapInfo(ctx context.Context, pid int) ([]byte, error) {
+	p, err := c.transact(cmdProcMap, le32(uint32(pid)))
+	if err != nil {
+		return nil, err
+	}
+	if respCode(p) == respErr {
+		return nil, fmt.Errorf("mapinfo pid %d: %s", pid, errnoString(respBody(p)))
+	}
+	return respBody(p), nil
+}
+
+// ParseMapInfo decodes a MapInfo reply into its loadable segments. Entries are
+// 24 bytes {pid[4], id[4], vaddr[8], size[8]}; this keeps only plausible mapped
+// segments (page-aligned non-zero vaddr, bounded size), which filters the reply's
+// non-segment/garbage records. The raw reply is always available for ground truth.
+func ParseMapInfo(b []byte) []MapSegment {
+	const maxSize = uint64(1) << 40 // 1 TiB sanity bound
+	var segs []MapSegment
+	for off := 0; off+24 <= len(b); off += 24 {
+		v := binary.LittleEndian.Uint64(b[off+8 : off+16])
+		s := binary.LittleEndian.Uint64(b[off+16 : off+24])
+		if v != 0 && v&0xfff == 0 && s != 0 && s < maxSize {
+			segs = append(segs, MapSegment{Vaddr: v, Size: s})
+		}
+	}
+	return segs
+}
+
+// NumSignals is the size of the DSMSG signal-disposition table (one byte per
+// signal/fault number).
+const NumSignals = 72
+
+// HandleSig sets which signals the debugger intercepts (DSMSG Handlesig): table
+// is NumSignals bytes, byte[i]=1 to stop the debugger on signal i+1, 0 to pass it
+// through to the process. (The SDK gdb sends the whole table.)
+func (c *Client) HandleSig(ctx context.Context, table []byte) error {
+	body := make([]byte, NumSignals)
+	copy(body, table)
+	p, err := c.transactSub(cmdHandlesig, 0, body)
+	if err != nil {
+		return err
+	}
+	if respCode(p) == respErr {
+		return fmt.Errorf("handlesig: %s", errnoString(respBody(p)))
+	}
+	return nil
+}
+
 // CPUInfo returns the target's CPU/info block (DSMSG CPUInfo). The reply is a
 // cpuinfo struct followed by the boot/executable path string; callers get the
 // raw bytes plus any printable trailing string.

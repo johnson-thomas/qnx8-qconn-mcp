@@ -59,6 +59,22 @@ func main() {
 			return 0
 		}
 		fmt.Printf("entry PC = %#x\n", readPC())
+		if raw, err := c.MapInfo(ctx, res.PID); err != nil {
+			fmt.Println("mapinfo:", err)
+		} else {
+			for _, s := range qnxdbg.ParseMapInfo(raw) {
+				fmt.Printf("map segment: vaddr=%#x size=%#x\n", s.Vaddr, s.Size)
+			}
+		}
+		tbl := make([]byte, qnxdbg.NumSignals)
+		for i := range tbl {
+			tbl[i] = 1
+		}
+		if err := c.HandleSig(ctx, tbl); err != nil {
+			fmt.Println("handlesig:", err)
+		} else {
+			fmt.Println("handlesig: intercept-all table accepted")
+		}
 		if m, _ := strconv.ParseUint(trimHex(*mainAddr), 16, 64); m != 0 {
 			if err := c.SetBreakpoint(ctx, m, 0); err != nil {
 				fmt.Println("break main:", err)

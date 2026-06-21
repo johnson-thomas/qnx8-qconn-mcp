@@ -72,7 +72,7 @@ ground truth is always available across QNX releases.
 
 ## MCP tool catalog
 
-35 tools, all returning structured JSON. Mounted at `POST /mcp`.
+37 tools, all returning structured JSON. Mounted at `POST /mcp`.
 
 **System** — `qconn_system_info`, `qconn_list_services`, `qconn_system_memory`
 
@@ -94,7 +94,9 @@ ground truth is always available across QNX releases.
 `qconn_debug_step`, `qconn_debug_break_set`, `qconn_debug_break_clear`,
 `qconn_debug_read_registers` (decoded aarch64), `qconn_debug_write_registers`,
 `qconn_debug_read_memory`, `qconn_debug_write_memory`, `qconn_debug_select_thread`,
-`qconn_debug_threads`, `qconn_debug_target_info`, `qconn_debug_detach`.
+`qconn_debug_threads`, `qconn_debug_mapinfo` (segment load addresses — find a PIE
+base), `qconn_debug_handle_signal` (intercept vs pass a signal),
+`qconn_debug_target_info`, `qconn_debug_detach`.
 
 Attach to a running process: `qconn_list_processes` → `qconn_debug_attach {pid}`
 → `qconn_debug_break_set {session_id, addr}` → `qconn_debug_continue` (runs to the

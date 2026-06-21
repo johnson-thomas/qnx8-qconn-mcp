@@ -19,9 +19,22 @@ var sessionSeq atomic.Int64
 
 // qnxSession is an active pdebug debug session (QNX DSMSG protocol).
 type qnxSession struct {
-	mu     sync.Mutex
-	client *qnxdbg.Client
-	pid    int
+	mu       sync.Mutex
+	client   *qnxdbg.Client
+	pid      int
+	sigTable []byte // DSMSG Handlesig disposition (1=intercept), lazily initialised
+}
+
+// signalTable returns the session's signal-disposition table, defaulting to
+// intercept-all on first use.
+func (q *qnxSession) signalTable() []byte {
+	if q.sigTable == nil {
+		q.sigTable = make([]byte, qnxdbg.NumSignals)
+		for i := range q.sigTable {
+			q.sigTable[i] = 1
+		}
+	}
+	return q.sigTable
 }
 
 func (q *qnxSession) Close() error { return q.client.Close() }
@@ -130,6 +143,17 @@ type selectThreadIn struct {
 type rawInfoOut struct {
 	Hex     string   `json:"hex"`
 	Strings []string `json:"strings,omitempty"`
+}
+
+type mapInfoOut struct {
+	Segments []qnxdbg.MapSegment `json:"segments"`
+	Hex      string              `json:"hex"`
+}
+
+type handleSigIn struct {
+	SessionID string `json:"session_id"`
+	Signal    int    `json:"signal" jsonschema:"QNX signal number (1-72)"`
+	Stop      bool   `json:"stop" jsonschema:"true = debugger stops on this signal; false = pass it through to the process"`
 }
 
 type threadsOut struct {
@@ -329,6 +353,46 @@ func (s *Server) registerDebugTools() {
 			sess.mu.Lock()
 			defer sess.mu.Unlock()
 			if err := sess.client.Select(ctx, sess.pid, in.TID); err != nil {
+				return nil, okOut{}, err
+			}
+			return nil, okOut{OK: true}, nil
+		})
+
+	addTool(s, "qconn_debug_mapinfo",
+		"Return the memory map of the debugged process (QNX DSMSG): the loadable segments with their virtual load address and size, plus the raw block. Useful to find the load base of a position-independent executable so you can compute a runtime breakpoint address (base + symbol offset).",
+		func(ctx context.Context, _ *mcp.CallToolRequest, in sessionIn) (*mcp.CallToolResult, mapInfoOut, error) {
+			sess, err := s.getSession(in.SessionID)
+			if err != nil {
+				return nil, mapInfoOut{}, err
+			}
+			sess.mu.Lock()
+			defer sess.mu.Unlock()
+			raw, err := sess.client.MapInfo(ctx, sess.pid)
+			if err != nil {
+				return nil, mapInfoOut{}, err
+			}
+			return nil, mapInfoOut{Segments: qnxdbg.ParseMapInfo(raw), Hex: hex.EncodeToString(raw)}, nil
+		})
+
+	addTool(s, "qconn_debug_handle_signal",
+		"Choose whether the debugger intercepts (stops on) a signal or passes it through to the debugged process (QNX DSMSG Handlesig). signal is the QNX signal number (1-72); stop=true makes the debugger stop on it. Sessions default to intercepting all signals.",
+		func(ctx context.Context, _ *mcp.CallToolRequest, in handleSigIn) (*mcp.CallToolResult, okOut, error) {
+			if in.Signal < 1 || in.Signal > qnxdbg.NumSignals {
+				return fail2[okOut]("signal %d out of range (1-%d)", in.Signal, qnxdbg.NumSignals)
+			}
+			sess, err := s.getSession(in.SessionID)
+			if err != nil {
+				return nil, okOut{}, err
+			}
+			sess.mu.Lock()
+			defer sess.mu.Unlock()
+			tbl := sess.signalTable()
+			if in.Stop {
+				tbl[in.Signal-1] = 1
+			} else {
+				tbl[in.Signal-1] = 0
+			}
+			if err := sess.client.HandleSig(ctx, tbl); err != nil {
 				return nil, okOut{}, err
 			}
 			return nil, okOut{OK: true}, nil

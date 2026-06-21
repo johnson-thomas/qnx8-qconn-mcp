@@ -114,4 +114,23 @@ func TestQNXLaunch(t *testing.T) {
 	if res.PID != 0x2000 || res.TID != 1 {
 		t.Fatalf("launch pid/tid = %d/%d want 8192/1", res.PID, res.TID)
 	}
+
+	// MapInfo: the mock returns one segment at 0x400000.
+	raw, err := c.MapInfo(ctx, res.PID)
+	if err != nil {
+		t.Fatalf("mapinfo: %v", err)
+	}
+	segs := qnxdbg.ParseMapInfo(raw)
+	if len(segs) != 1 || segs[0].Vaddr != 0x400000 || segs[0].Size != 0x1000 {
+		t.Fatalf("mapinfo segments = %+v want [{0x400000 0x1000}]", segs)
+	}
+
+	// Handlesig: a full disposition table is accepted.
+	tbl := make([]byte, qnxdbg.NumSignals)
+	for i := range tbl {
+		tbl[i] = 1
+	}
+	if err := c.HandleSig(ctx, tbl); err != nil {
+		t.Fatalf("handlesig: %v", err)
+	}
 }

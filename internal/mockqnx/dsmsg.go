@@ -104,6 +104,13 @@ func ServeDSMSG(conn net.Conn) {
 			reply(0x22, mid, []byte{0x20, 0x04, 0x00, 0x00})
 		case 23: // Protover
 			reply(0x22, mid, []byte{0x01, 0x03, 0x00, 0x00})
+		case 27: // ProcMap (0x1b): one 24-byte segment entry {pid,id,vaddr,size}
+			seg := append(appendLE32(nil, attachedPID), appendLE32(nil, 0)...)
+			seg = appendLE64(seg, 0x400000) // vaddr (page-aligned)
+			seg = appendLE64(seg, 0x1000)   // size
+			reply(0x23, mid, seg)
+		case 24: // Handlesig -> ok
+			reply(0x21, mid, nil)
 		case 21: // Env (stage argv/env before Load) -> ok
 			reply(0x21, mid, nil)
 		case 4: // Load -> okdata with pid+tid (process loaded, stopped at entry)

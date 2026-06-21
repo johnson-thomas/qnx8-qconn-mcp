@@ -53,6 +53,7 @@ const (
 	cmdHandlesig  = 24
 	cmdCPUInfo    = 25
 	cmdTIDNames   = 26
+	cmdProcMap    = 27 // 0x1b: per-process memory map (segment load addresses)
 )
 
 // DSMSG response codes (target -> host); appear as payload[0] of a reply.

@@ -14,7 +14,7 @@ Snapshot of what is implemented and how far it has been verified. See
   real pdebug protocol — attach, select-thread, continue, single-step,
   breakpoints, register read/write, memory read/write, threads, CPUInfo, detach;
   TCP or serial transport.
-- **MCP server** (`internal/mcpserver`): **35 tools** (14 debug) over **Streamable
+- **MCP server** (`internal/mcpserver`): **37 tools** (16 debug) over **Streamable
   HTTP** using the official Go MCP SDK; optional bearer auth; structured logging.
 - **mock-qconn** (`internal/mockqnx`) with an embedded pdebug RSP responder.
 - **qconn-proxy** (`internal/proxy`): annotated logging proxy (development aid).
@@ -95,6 +95,9 @@ the QNX SDK):
 - `qconn_debug_read_memory` / `qconn_debug_write_memory`
 - `qconn_debug_threads` (Pidlist/TIDNames — process & thread names),
   `qconn_debug_select_thread`, `qconn_debug_target_info` (CPUInfo)
+- `qconn_debug_mapinfo` (cmd 0x1b — segment load addresses; read the PIE text
+  base, e.g. `0x400000` for a non-PIE / the randomized base for a PIE) and
+  `qconn_debug_handle_signal` (Handlesig — per-signal intercept/pass table)
 - `qconn_debug_break_clear`, `qconn_debug_detach`
 
 `internal/qnxdbg` is unit-tested (framing/checksum, breakpoint & run frames) and
@@ -133,8 +136,7 @@ channel** (the program's stdout/stderr, retrievable via `Client.Output`) so it i
 not mistaken for a debug reply, and `SpawnPdebug` redirects pdebug's stdio so a
 launched program inherits valid fds instead of the launcher's closing pipe.
 
-Attach-based debugging is unaffected. `Handlesig` (signal disposition table) and
-`Mapinfo` remain pending.
+Attach-based debugging is unaffected.
 
 The separate `internal/debug` package remains a GDB-RSP bridge for
 **gdbserver-style** stubs (tested against the mock RSP responder).
@@ -154,5 +156,5 @@ The QNX 8.0 SDK host tools are x86-64 binaries; on an aarch64 host they run unde
 
 ## Roadmap
 
-Signal handling (`Handlesig`), shared-library maps (`Mapinfo`); profiling / code
-coverage / postmortem (coredump) parity; parser tuning against real QNX 8.
+Profiling / code coverage / postmortem (coredump) parity; parser tuning against
+real QNX 8.
