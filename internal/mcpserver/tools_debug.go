@@ -26,6 +26,32 @@ type qnxSession struct {
 
 func (q *qnxSession) Close() error { return q.client.Close() }
 
+// dialPdebug establishes a DSMSG connection to pdebug: over the configured
+// serial line if set (pdebug must already be running on it), otherwise it spawns
+// pdebug on the given TCP port (0 = server default) via qconn and dials it.
+func (s *Server) dialPdebug(ctx context.Context, debugPort int) (*qnxdbg.Client, error) {
+	if s.cfg.DebugSerial != "" {
+		cl, err := qnxdbg.ConnectSerial(ctx, s.cfg.DebugSerial, s.cfg.DebugBaud, s.cfg.Logger, s.cfg.Timeout)
+		if err != nil {
+			return nil, fmt.Errorf("connect pdebug (serial %s): %w", s.cfg.DebugSerial, err)
+		}
+		return cl, nil
+	}
+	port := debugPort
+	if port == 0 {
+		port = s.cfg.DebugPort
+	}
+	if err := s.mgr.SpawnPdebug(ctx, port); err != nil {
+		return nil, err
+	}
+	addr := net.JoinHostPort(s.cfg.QconnHost, strconv.Itoa(port))
+	cl, err := qnxdbg.Connect(ctx, addr, s.cfg.Logger, s.cfg.Timeout)
+	if err != nil {
+		return nil, fmt.Errorf("connect pdebug: %w", err)
+	}
+	return cl, nil
+}
+
 func (s *Server) getSession(id string) (*qnxSession, error) {
 	s.dbgMu.Lock()
 	defer s.dbgMu.Unlock()
@@ -49,6 +75,19 @@ type attachOut struct {
 
 type sessionIn struct {
 	SessionID string `json:"session_id" jsonschema:"debug session id from qconn_debug_attach"`
+}
+
+type launchIn struct {
+	Path      string   `json:"path" jsonschema:"path ON THE TARGET of the program to launch under the debugger"`
+	Args      []string `json:"args,omitempty" jsonschema:"optional arguments (argv[1:])"`
+	DebugPort int      `json:"debug_port,omitempty" jsonschema:"TCP port pdebug should listen on (default from server config)"`
+}
+
+type launchOut struct {
+	SessionID string `json:"session_id"`
+	PID       int    `json:"pid"`
+	TID       int    `json:"tid"`
+	Note      string `json:"note,omitempty"`
 }
 
 type stopOut struct {
@@ -108,30 +147,9 @@ func (s *Server) registerDebugTools() {
 			if _, err := s.cli(ctx); err != nil { // ensures qconn + s.mgr
 				return nil, attachOut{}, err
 			}
-			var cl *qnxdbg.Client
-			if s.cfg.DebugSerial != "" {
-				// Serial transport: pdebug must already be running on the target
-				// bound to its serial line (started out of band); we just open
-				// the local serial device and speak DSMSG over it.
-				var err error
-				cl, err = qnxdbg.ConnectSerial(ctx, s.cfg.DebugSerial, s.cfg.DebugBaud, s.cfg.Logger, s.cfg.Timeout)
-				if err != nil {
-					return nil, attachOut{}, fmt.Errorf("connect pdebug (serial %s): %w", s.cfg.DebugSerial, err)
-				}
-			} else {
-				port := in.DebugPort
-				if port == 0 {
-					port = s.cfg.DebugPort
-				}
-				if err := s.mgr.SpawnPdebug(ctx, port); err != nil {
-					return nil, attachOut{}, err
-				}
-				addr := net.JoinHostPort(s.cfg.QconnHost, strconv.Itoa(port))
-				var err error
-				cl, err = qnxdbg.Connect(ctx, addr, s.cfg.Logger, s.cfg.Timeout)
-				if err != nil {
-					return nil, attachOut{}, fmt.Errorf("connect pdebug: %w", err)
-				}
+			cl, err := s.dialPdebug(ctx, in.DebugPort)
+			if err != nil {
+				return nil, attachOut{}, err
 			}
 			if err := cl.Attach(ctx, in.PID); err != nil {
 				cl.Close()
@@ -143,6 +161,30 @@ func (s *Server) registerDebugTools() {
 			s.sessions[id] = &qnxSession{client: cl, pid: in.PID}
 			s.dbgMu.Unlock()
 			return nil, attachOut{SessionID: id, PID: in.PID}, nil
+		})
+
+	addTool(s, "qconn_debug_launch",
+		"Launch a program on the target UNDER the debugger (QNX DSMSG Load), stopped before its first instruction — the basis for debugging from main. path is the path ON THE TARGET. Returns a session id (process stopped at entry); set a breakpoint at main and call qconn_debug_continue to reach it.",
+		func(ctx context.Context, _ *mcp.CallToolRequest, in launchIn) (*mcp.CallToolResult, launchOut, error) {
+			if _, err := s.cli(ctx); err != nil {
+				return nil, launchOut{}, err
+			}
+			cl, err := s.dialPdebug(ctx, in.DebugPort)
+			if err != nil {
+				return nil, launchOut{}, err
+			}
+			res, err := cl.Launch(ctx, in.Path, in.Args, nil)
+			if err != nil {
+				cl.Close()
+				return nil, launchOut{}, err
+			}
+			_ = cl.Select(ctx, res.PID, res.TID)
+			id := fmt.Sprintf("dbg-%d", sessionSeq.Add(1))
+			s.dbgMu.Lock()
+			s.sessions[id] = &qnxSession{client: cl, pid: res.PID}
+			s.dbgMu.Unlock()
+			return nil, launchOut{SessionID: id, PID: res.PID, TID: res.TID,
+				Note: "process is stopped at its entry point; set a breakpoint at main and qconn_debug_continue"}, nil
 		})
 
 	addTool(s, "qconn_debug_read_registers",

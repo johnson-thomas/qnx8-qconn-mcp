@@ -72,7 +72,7 @@ ground truth is always available across QNX releases.
 
 ## MCP tool catalog
 
-34 tools, all returning structured JSON. Mounted at `POST /mcp`.
+35 tools, all returning structured JSON. Mounted at `POST /mcp`.
 
 **System** — `qconn_system_info`, `qconn_list_services`, `qconn_system_memory`
 
@@ -88,16 +88,23 @@ ground truth is always available across QNX releases.
 **Files** — `qconn_read_file`, `qconn_write_file`, `qconn_stat`,
 `qconn_list_dir`, `qconn_delete`, `qconn_mkdir`, `qconn_chmod`
 
-**Debug (pdebug / QNX DSMSG)** — `qconn_debug_attach`, `qconn_debug_continue`,
+**Debug (pdebug / QNX DSMSG)** — `qconn_debug_attach`, `qconn_debug_launch`
+(start a program under the debugger, stopped at entry — debug from `main`),
+`qconn_debug_continue`,
 `qconn_debug_step`, `qconn_debug_break_set`, `qconn_debug_break_clear`,
 `qconn_debug_read_registers` (decoded aarch64), `qconn_debug_write_registers`,
 `qconn_debug_read_memory`, `qconn_debug_write_memory`, `qconn_debug_select_thread`,
 `qconn_debug_threads`, `qconn_debug_target_info`, `qconn_debug_detach`.
 
-A typical debug flow: `qconn_list_processes` → `qconn_debug_attach {pid}` →
-`qconn_debug_break_set {session_id, addr}` → `qconn_debug_continue` (runs to the
+Attach to a running process: `qconn_list_processes` → `qconn_debug_attach {pid}`
+→ `qconn_debug_break_set {session_id, addr}` → `qconn_debug_continue` (runs to the
 breakpoint) → `qconn_debug_read_registers` / `qconn_debug_read_memory` →
 `qconn_debug_step` → `qconn_debug_break_clear` → `qconn_debug_detach`.
+
+Debug from `main`: `qconn_debug_launch {path}` (loads the program stopped at its
+entry) → `qconn_debug_break_set {session_id, addr: <main>}` → `qconn_debug_continue`
+(stops at `main`) → … → `qconn_debug_detach`. The program's stdout/stderr is
+captured off the DSMSG text channel.
 
 ---
 
@@ -217,8 +224,6 @@ served via `mcp.NewStreamableHTTPHandler`.
 
 ## Limitations & roadmap
 
-- **Launch-under-debugger** (debugging from `main`) is not yet wired; attach-based
-  debugging is complete.
 - **Serial pdebug transport** (`--debug-serial`) is implemented; it needs a serial
   line dedicated to pdebug (separate from the system console).
 - **Profiling / code coverage / postmortem (coredump)** parity is planned.

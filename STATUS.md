@@ -14,7 +14,7 @@ Snapshot of what is implemented and how far it has been verified. See
   real pdebug protocol — attach, select-thread, continue, single-step,
   breakpoints, register read/write, memory read/write, threads, CPUInfo, detach;
   TCP or serial transport.
-- **MCP server** (`internal/mcpserver`): **34 tools** (13 debug) over **Streamable
+- **MCP server** (`internal/mcpserver`): **35 tools** (14 debug) over **Streamable
   HTTP** using the official Go MCP SDK; optional bearer auth; structured logging.
 - **mock-qconn** (`internal/mockqnx`) with an embedded pdebug RSP responder.
 - **qconn-proxy** (`internal/proxy`): annotated logging proxy (development aid).
@@ -85,7 +85,8 @@ These layouts match the publicly documented QNX debug constants (`_DEBUG_BREAK_*
 via the MCP HTTP tools, debugging a dedicated `test/dbgtarget` binary built with
 the QNX SDK):
 
-- `qconn_debug_attach` (spawns pdebug, DSMSG connect/attach/select)
+- `qconn_debug_attach` (spawns pdebug, DSMSG connect/attach/select) and
+  `qconn_debug_launch` (load a program stopped at entry → break at `main`)
 - `qconn_debug_break_set` → `qconn_debug_continue` → **breakpoint hit** at the
   exact address (`pc` and the function args in `x0/x1` confirmed)
 - `qconn_debug_step` — advances exactly one instruction (`pc` += 4)
@@ -109,24 +110,31 @@ pdebug-over-serial session is **not** hardware-validated here because the board'
 only UART is the system console (`/dev/ttyUSB0`); it needs a dedicated serial
 line. Use TCP on this board.
 
-**Not yet added — launch-under-debugger (DSMSG `Load`, cmd 4).** Diagnosed in
-detail:
+**Launch-under-debugger / debug from `main` (DSMSG `Load`) — WORKING.** No file
+upload is needed; the program just has to exist on the target. The working
+sequence (captured from the SDK gdb on real pdebug) is an **`Env` (cmd 21)
+preamble** then `Load`:
 
-- The SDK gdb `run` failure (`Remote (spawn error): No such file or directory`)
-  is because gdb puts the **host** file path in the `Load` message — `set remote
-  exec-file` is ineffective for the `nto` target — so pdebug `ENOENT`s a path that
-  exists only on the host. Not a target/pdebug fault.
-- The `Load` body is `argc:int32 envc:int32` then the NUL-separated cmdline. A
-  bare `Load` needs `argc >= 1` (argc=0 → `EINVAL`).
-- Even with `argc=1` and a valid **target** path, pdebug started via
-  `on -d pdebug <port>` returns `ENOENT` for a bare `Load` — including for
-  `/proc/boot/ksh`, which definitely exists. So a single `Load` message is not
-  enough: the executable almost certainly has to be **uploaded to pdebug via the
-  DSMSG file service** (`Fileopen`/`Filewr`, what Momentics/gdb's "upload" does)
-  before `Load`. Implementing that upload preamble is the remaining work.
+- `Env sub=2` resets the environment table, `Env sub=3` appends each
+  `"NAME=VALUE"`; `Env sub=0` resets the argv table, `Env sub=1` appends each
+  argv entry (the SDK gdb stages the path as both exec-file and argv[0]).
+- `Load` body is `argc:int32 envc:int32` (both 0), the program path, then `@0
+  @1 @2` markers that reference the staged argv slots. The reply returns the new
+  **pid/tid**, with the process stopped before its first instruction. (A bare
+  `Load` without the `Env` preamble fails `EINVAL` — the markers have no argv to
+  resolve.)
 
-Attach-based debugging (above) is complete and unaffected. `Handlesig` (signal
-disposition table) and `Mapinfo` are likewise pending.
+`qconn_debug_launch` implements this. **Validated on real QNX 8 hardware** (via
+`cmd/dbgprobe -launch` and the MCP tools): launch a program → it stops at the
+loader entry → set a breakpoint at `main` → `continue` stops exactly at `main`
+(`pc` and `x0=argc` confirmed). Two fixes were needed for launched processes
+(which `attach` did not exercise): the client now filters the DSMSG **text
+channel** (the program's stdout/stderr, retrievable via `Client.Output`) so it is
+not mistaken for a debug reply, and `SpawnPdebug` redirects pdebug's stdio so a
+launched program inherits valid fds instead of the launcher's closing pipe.
+
+Attach-based debugging is unaffected. `Handlesig` (signal disposition table) and
+`Mapinfo` remain pending.
 
 The separate `internal/debug` package remains a GDB-RSP bridge for
 **gdbserver-style** stubs (tested against the mock RSP responder).
@@ -146,6 +154,5 @@ The QNX 8.0 SDK host tools are x86-64 binaries; on an aarch64 host they run unde
 
 ## Roadmap
 
-Launch-under-debugger (`Load`), signal handling (`Handlesig`), shared-library
-maps (`Mapinfo`); profiling / code coverage / postmortem (coredump) parity;
-parser tuning against real QNX 8.
+Signal handling (`Handlesig`), shared-library maps (`Mapinfo`); profiling / code
+coverage / postmortem (coredump) parity; parser tuning against real QNX 8.

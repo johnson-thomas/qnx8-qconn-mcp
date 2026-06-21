@@ -2,6 +2,7 @@ package qnxdbg
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 )
 
@@ -25,6 +26,18 @@ func (c *Client) Detach(ctx context.Context, pid int) error {
 	}
 	if respCode(p) == respErr {
 		return fmt.Errorf("detach pid %d: target returned error", pid)
+	}
+	return nil
+}
+
+// Kill terminates the process pid on the target (DSMSG Kill).
+func (c *Client) Kill(ctx context.Context, pid int) error {
+	p, err := c.transact(cmdKill, le32(uint32(pid)))
+	if err != nil {
+		return err
+	}
+	if respCode(p) == respErr {
+		return fmt.Errorf("kill pid %d: target error", pid)
 	}
 	return nil
 }
@@ -257,6 +270,119 @@ type ProcessList struct {
 	TID  int    `json:"tid"`
 	Raw  string `json:"raw"`
 	Name string `json:"name,omitempty"`
+}
+
+// DSMSG Env (cmd 21) subcmds — used to stage the argv and environment tables on
+// the target before a Load (verified against the SDK gdb on real pdebug):
+const (
+	envSetArgv   = 0x01 // append one argv string
+	envResetEnv  = 0x02 // clear the environment table (1 KiB zero buffer)
+	envSetEnv    = 0x03 // append one "NAME=VALUE" environment string
+	envResetArgv = 0x00 // clear the argv table (1 KiB zero buffer)
+)
+
+// envCmd sends one Env (cmd 21) message and checks for an error reply.
+func (c *Client) envCmd(sub byte, body []byte) error {
+	p, err := c.transactSub(cmdEnv, sub, body)
+	if err != nil {
+		return err
+	}
+	if respCode(p) == respErr {
+		return fmt.Errorf("env sub %d: %s", sub, errnoString(respBody(p)))
+	}
+	return nil
+}
+
+// LaunchResult is the outcome of a Load: the new process is stopped before its
+// first instruction.
+type LaunchResult struct {
+	PID int `json:"pid"`
+	TID int `json:"tid"`
+}
+
+// defaultLaunchEnv is a minimal child environment sufficient to exec a QNX
+// program (the runtime loader needs PATH; LD_BIND_NOW matches the SDK gdb).
+var defaultLaunchEnv = []string{"PATH=/proc/boot:/system/bin", "HOME=/", "LD_BIND_NOW=1"}
+
+// Launch starts program path (a path on the TARGET) under debugger control,
+// stopped before its first instruction — the basis for "debug from main". args
+// are argv[1:]; env is the child environment as "NAME=VALUE" strings (nil uses a
+// minimal default). On success the process is loaded stopped; Select the
+// returned pid/tid, set breakpoints, then Continue.
+//
+// The sequence (Env preamble then Load) and the Load body — argc/envc zero, the
+// program path, and "@N" markers that reference the argv slots staged via Env —
+// were verified against the SDK gdb talking to real QNX 8 pdebug.
+func (c *Client) Launch(ctx context.Context, path string, args, env []string) (*LaunchResult, error) {
+	if env == nil {
+		env = defaultLaunchEnv
+	}
+	// Stage the environment table.
+	if err := c.envCmd(envResetEnv, make([]byte, 1024)); err != nil {
+		return nil, err
+	}
+	for _, e := range env {
+		if err := c.envCmd(envSetEnv, append([]byte(e), 0)); err != nil {
+			return nil, err
+		}
+	}
+	// Stage the argv table. The SDK gdb sends the program path first as the
+	// exec-file, then again as argv[0], then any further args.
+	if err := c.envCmd(envResetArgv, make([]byte, 1024)); err != nil {
+		return nil, err
+	}
+	staged := append([]string{path, path}, args...) // exec-file, argv[0], argv[1:]
+	for _, a := range staged {
+		if err := c.envCmd(envSetArgv, append([]byte(a), 0)); err != nil {
+			return nil, err
+		}
+	}
+	// Load: argc=0, envc=0, the program path, then "@i" markers that reference
+	// the staged argv slots. gdb always sends three (@0 @1 @2); send at least
+	// that many so the exec-file/argv[0] slots resolve.
+	n := len(staged)
+	if n < 3 {
+		n = 3
+	}
+	body := make([]byte, 8)
+	body = append(body, []byte(path)...)
+	body = append(body, 0)
+	for i := 0; i < n; i++ {
+		body = append(body, []byte(fmt.Sprintf("@%d", i))...)
+		body = append(body, 0)
+	}
+	body = append(body, 0) // terminate the cmdline list
+	p, err := c.transact(cmdLoad, body)
+	if err != nil {
+		return nil, err
+	}
+	if respCode(p) == respErr {
+		return nil, fmt.Errorf("load %q: %s", path, errnoString(respBody(p)))
+	}
+	res := &LaunchResult{}
+	if b := respBody(p); len(b) >= 8 {
+		res.PID = int(binary.LittleEndian.Uint32(b[0:4]))
+		res.TID = int(binary.LittleEndian.Uint32(b[4:8]))
+	}
+	return res, nil
+}
+
+// errnoString renders a DSMSG error-reply body (errno as little-endian int32).
+func errnoString(b []byte) string {
+	if len(b) < 4 {
+		return "target error"
+	}
+	switch binary.LittleEndian.Uint32(b) {
+	case 2:
+		return "ENOENT (no such file or directory on the target)"
+	case 8:
+		return "ENOEXEC (not an executable)"
+	case 13:
+		return "EACCES (permission denied)"
+	case 22:
+		return "EINVAL (invalid argument)"
+	}
+	return fmt.Sprintf("target errno %d", binary.LittleEndian.Uint32(b))
 }
 
 // CPUInfo returns the target's CPU/info block (DSMSG CPUInfo). The reply is a

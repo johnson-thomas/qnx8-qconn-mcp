@@ -104,6 +104,13 @@ func ServeDSMSG(conn net.Conn) {
 			reply(0x22, mid, []byte{0x20, 0x04, 0x00, 0x00})
 		case 23: // Protover
 			reply(0x22, mid, []byte{0x01, 0x03, 0x00, 0x00})
+		case 21: // Env (stage argv/env before Load) -> ok
+			reply(0x21, mid, nil)
+		case 4: // Load -> okdata with pid+tid (process loaded, stopped at entry)
+			attachedPID = 0x2000
+			body := append(appendLE32(nil, attachedPID), appendLE32(nil, 1)...)
+			body = append(body, []byte("mockproc")...)
+			reply(0x23, mid, body)
 		case 5: // Attach -> okdata + a fake name
 			if body := p[4:]; len(body) >= 4 {
 				attachedPID = binary.LittleEndian.Uint32(body)

@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -25,7 +26,54 @@ func main() {
 	trace := flag.Bool("trace", false, "wire trace")
 	execTest := flag.Bool("exec", false, "test breakpoint/continue/stop")
 	brk := flag.String("brk", "0", "hex address to set a breakpoint at, then continue until it is hit")
+	launch := flag.String("launch", "", "TARGET path of a program to launch under the debugger (DSMSG Load)")
+	mainAddr := flag.String("main", "0", "hex address of main; after launch, break there and continue to it")
 	flag.Parse()
+
+	if *launch != "" {
+		ctx := context.Background()
+		lvl := "info"
+		if *trace {
+			lvl = "debug"
+		}
+		c, err := qnxdbg.Connect(ctx, *addr, obs.Setup(obs.Options{Level: lvl, Trace: *trace}), 10*time.Second)
+		if err != nil {
+			fmt.Println("connect:", err)
+			os.Exit(1)
+		}
+		defer c.Close()
+		fmt.Println("=== handshake OK ===")
+		res, err := c.Launch(ctx, *launch, nil, nil)
+		if err != nil {
+			fmt.Println("launch:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("LAUNCHED %s -> pid=%d tid=%d (stopped at entry)\n", *launch, res.PID, res.TID)
+		if err := c.Select(ctx, res.PID, res.TID); err != nil {
+			fmt.Println("select:", err)
+		}
+		readPC := func() uint64 {
+			if b, err := c.ReadRegisters(ctx, 0x100, 8); err == nil && len(b) == 8 {
+				return binary.LittleEndian.Uint64(b)
+			}
+			return 0
+		}
+		fmt.Printf("entry PC = %#x\n", readPC())
+		if m, _ := strconv.ParseUint(trimHex(*mainAddr), 16, 64); m != 0 {
+			if err := c.SetBreakpoint(ctx, m, 0); err != nil {
+				fmt.Println("break main:", err)
+			} else {
+				st, err := c.Continue(ctx)
+				if err != nil {
+					fmt.Println("continue:", err)
+				} else {
+					fmt.Printf("STOPPED at main: code=%#x pc=%#x (expected %#x)\n", st.Code, readPC(), m)
+				}
+			}
+		}
+		_ = c.Kill(ctx, res.PID)
+		return
+	}
 
 	lvl := "info"
 	if *trace {

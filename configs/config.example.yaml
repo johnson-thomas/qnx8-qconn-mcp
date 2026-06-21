@@ -17,8 +17,10 @@ token: ""                   # if set, clients must send: Authorization: Bearer <
 
 # --- Debug (pdebug / GDB-RSP) bridge ----------------------------------------
 debug_port: 8001               # TCP port pdebug is told to listen on
-pdebug_cmd: "on -d pdebug %d"  # launch template; %d = debug_port. `on -d` keeps
-                               # pdebug alive after the launcher session closes.
+pdebug_cmd: "on -d pdebug %d </dev/null >/dev/null 2>&1"  # launch template; %d = debug_port.
+                               # `on -d` keeps pdebug alive after the launcher session
+                               # closes; stdio is redirected so a launched program (whose
+                               # fds pdebug owns) has valid stdin/stdout/stderr.
                                # The debug_* tools speak the real QNX DSMSG
                                # protocol to pdebug (validated on QNX 8 hardware).
 debug_serial: ""               # serial device for the DSMSG transport instead of

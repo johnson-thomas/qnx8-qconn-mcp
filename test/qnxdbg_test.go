@@ -89,3 +89,29 @@ func TestQNXDebugProtocol(t *testing.T) {
 		t.Fatalf("detach: %v", err)
 	}
 }
+
+// TestQNXLaunch exercises launch-under-debugger (Env preamble + Load) against the
+// mock pdebug: the reply yields the new pid/tid.
+func TestQNXLaunch(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go mockqnx.ListenDSMSG(ln)
+	t.Cleanup(func() { ln.Close() })
+
+	ctx := context.Background()
+	c, err := qnxdbg.Connect(ctx, ln.Addr().String(), nil, 5*time.Second)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+
+	res, err := c.Launch(ctx, "/tmp/prog", []string{"-x"}, nil)
+	if err != nil {
+		t.Fatalf("launch: %v", err)
+	}
+	if res.PID != 0x2000 || res.TID != 1 {
+		t.Fatalf("launch pid/tid = %d/%d want 8192/1", res.PID, res.TID)
+	}
+}

@@ -44,7 +44,7 @@ func Default() Config {
 		BindAddr:  "127.0.0.1:8077",
 		Path:      "/mcp",
 		DebugPort: 8001,
-		PdebugCmd: "on -d pdebug %d",
+		PdebugCmd: "on -d pdebug %d </dev/null >/dev/null 2>&1",
 		DebugBaud: 115200,
 		LogLevel:  "info",
 		LogFormat: "text",

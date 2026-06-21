@@ -111,7 +111,7 @@ func (s *Server) client(ctx context.Context) (*qconn.Client, error) {
 	s.conn = cli
 	pcmd := s.cfg.PdebugCmd
 	if pcmd == "" {
-		pcmd = "on -d pdebug %d"
+		pcmd = "on -d pdebug %d </dev/null >/dev/null 2>&1"
 	}
 	s.mgr = debug.NewManager(cli, s.cfg.QconnHost, s.cfg.Logger)
 	s.mgr.PdebugCmd = pcmd

@@ -47,8 +47,10 @@ func NewManager(c *qconn.Client, host string, log *slog.Logger) *Manager {
 		Logger:  log.With("component", "pdebug"),
 		Timeout: 20 * time.Second,
 		// `on -d` detaches pdebug so it survives the one-shot launcher session
-		// closing; "%d" is the TCP port pdebug accepts connections on.
-		PdebugCmd: "on -d pdebug %d",
+		// closing; "%d" is the TCP port pdebug accepts connections on. stdio is
+		// redirected so a LAUNCHED program (whose fds pdebug owns) has valid
+		// stdin/stdout/stderr instead of the launcher's closing pipe.
+		PdebugCmd: "on -d pdebug %d </dev/null >/dev/null 2>&1",
 	}
 }
 

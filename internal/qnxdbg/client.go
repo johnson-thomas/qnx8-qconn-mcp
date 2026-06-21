@@ -31,6 +31,7 @@ type Client struct {
 	timeout time.Duration
 	remote  string // human label for logs (host:port or serial device)
 	mid     byte   // message id (low byte of the counter; channel high byte = DEBUG)
+	output  []byte // accumulated program stdout/stderr from the text channel
 }
 
 // Connect dials pdebug at addr (host:port) and performs the connect handshake.
@@ -123,19 +124,35 @@ func (c *Client) readFrame() ([]byte, error) {
 	return payload, nil
 }
 
-// readResponse reads frames, skipping channel-control frames (payload < 4
-// bytes), and returns the first real DSMSG reply (header + body).
+// readResponse reads frames and returns the first real DSMSG reply or
+// notification on the DEBUG channel. It skips channel-control frames (payload <
+// 4 bytes) and TEXT-channel frames (channel byte == chanText) — the latter carry
+// the debugged process's stdout/stderr when pdebug owns the program (i.e. after
+// a Load), which must not be mistaken for a debug reply. Text payloads are
+// accumulated in c.output for retrieval.
 func (c *Client) readResponse() ([]byte, error) {
 	for {
 		p, err := c.readFrame()
 		if err != nil {
 			return nil, err
 		}
-		if len(p) >= 4 {
-			return p, nil
+		if len(p) < 4 {
+			continue // control frame (e.g. channel set)
 		}
-		// Control frame (e.g. channel set); keep reading.
+		if p[3] == chanText {
+			c.output = append(c.output, p[4:]...) // program stdout/stderr
+			continue
+		}
+		return p, nil
 	}
+}
+
+// Output returns and clears any program stdout/stderr captured from the debug
+// connection's text channel (relevant for launched processes).
+func (c *Client) Output() []byte {
+	out := c.output
+	c.output = nil
+	return out
 }
 
 // handshake performs the connect sequence: echo the reset frame, send Connect,

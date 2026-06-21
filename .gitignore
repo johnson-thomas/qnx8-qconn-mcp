@@ -6,6 +6,7 @@ __pycache__/
 # Cross-compiled QNX target binaries (build artifacts; source is checked in)
 /test/dbgtarget/dbgtarget
 /test/dbgtarget/dbgtarget.static
+/test/dbgtarget/dbgtarget.nopie
 
 # Local developer notes / scratch README (not for publishing)
 README.local.md
