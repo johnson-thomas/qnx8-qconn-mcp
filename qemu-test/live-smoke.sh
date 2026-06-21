@@ -3,15 +3,16 @@
 # Drive qconn-mcp against a LIVE qconn (the QEMU guest, or a real QNX target) and
 # exercise a few tools over the Streamable HTTP transport.
 #
-# Prereqs: qconn reachable at $QCONN (default 127.0.0.1:8000, i.e. the QEMU
-# hostfwd) and the qconn-mcp binary built (run `make build` in the repo root).
+# Prereqs: qconn reachable at $QCONN (default 127.0.0.1:18000, i.e. the QEMU
+# hostfwd from run-qnx.sh) and the qconn-mcp binary built (run `make build`).
 #
-# Usage:  ./live-smoke.sh            # uses 127.0.0.1:8000
-#         QCONN=192.168.1.50:8000 ./live-smoke.sh
+# Usage:  ./live-smoke.sh            # uses 127.0.0.1:18000 (QEMU)
+#         QCONN=192.168.1.50:8000 ./live-smoke.sh   # a real target
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-QCONN="${QCONN:-127.0.0.1:8000}"
+QCONN="${QCONN:-127.0.0.1:18000}"
+DEBUG_PORT="${DEBUG_PORT:-18001}"
 HOST="${QCONN%:*}"; PORT="${QCONN##*:}"
 BIND="127.0.0.1:8077"
 ACCEPT='Accept: application/json, text/event-stream'
@@ -20,7 +21,7 @@ CT='Content-Type: application/json'
 [ -x bin/qconn-mcp ] || go build -o bin/ ./...
 
 echo ">> launching qconn-mcp against $HOST:$PORT (trace on)"
-./bin/qconn-mcp --qconn-host "$HOST" --qconn-port "$PORT" --bind "$BIND" \
+./bin/qconn-mcp --qconn-host "$HOST" --qconn-port "$PORT" --debug-port "$DEBUG_PORT" --bind "$BIND" \
   --log-level debug --trace >/tmp/qconn-mcp-live.log 2>&1 &
 MCP=$!
 trap 'kill $MCP 2>/dev/null' EXIT

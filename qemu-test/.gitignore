@@ -1,4 +1,9 @@
-# QEMU test images are large binary blobs from openqnx; do not commit.
-qnxfs.img
-qnx.ifs
+# QEMU images are large binary blobs built locally from the QNX SDK; never commit.
+# (The recommended workflow builds into ~/qnx8-qemu, outside the repo entirely.)
+*.img
+*.ifs
+*.bin
+*.vmdk
 *.qcow2
+output/
+local/

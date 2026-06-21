@@ -1,82 +1,85 @@
-# QEMU test tier (openqnx QNX Neutrino 6.4.0)
+# QEMU test tier — QNX 8 (built with the QNX SDK)
 
-This directory boots the **prebuilt openqnx image** (`qnxfs.img` / `qnx.ifs`,
-from `github.com/vocho/openqnx`) under QEMU. The image **boots QNX 6.4.0 and
-contains the `qconn` and `pidin` binaries**, so it is the closest open, no-cost
-target to a real QNX box.
+A throwaway **QNX 8.0** VM in QEMU for exercising `qconn-mcp` without physical
+hardware. The image is built from the **QNX Software Development Platform (SDP)
+8.0** with its `mkqnximage` tool; QNX 8's `qconn` runs in it and serves the wire
+protocol over TCP, so the full MCP tool surface (and the `pdebug` debug path) can
+be driven against it.
 
-## Boot it
+> **No image is committed to this repo.** You build it locally from your licensed
+> QNX SDK. This directory contains only scripts and instructions.
 
-```bash
-./run-qnx.sh                 # curses VGA console in this terminal
-# DISPLAY_MODE=vnc ./run-qnx.sh   # console on VNC :0 (127.0.0.1:5900)
-```
+## Prerequisites
 
-Or drive it non-interactively via tmux (what the automated check uses):
+- A licensed **QNX SDP 8.0** install (provides `mkqnximage`, `mkifs`, `qcc`, …).
+  Source its environment first: `source ~/qnx800/qnxsdp-env.sh`.
+- **`qemu-system-x86_64`** on the host (`sudo apt-get install -y qemu-system-x86`).
+- The SDK host tools are **x86-64**. On an x86-64 host they run natively. On an
+  **aarch64 host**, register an x86-64 emulator so `mkqnximage` can run them — see
+  [aarch64 build hosts](#aarch64-build-hosts) below.
 
-```bash
-tmux new-session -d -s qnx -x 80 -y 25
-tmux send-keys -t qnx "qemu-system-i386 -drive file=qnxfs.img,format=raw -m 256 \
-  -device ne2k_pci,netdev=n0 -netdev user,id=n0,hostfwd=tcp::18000-:8000 \
-  -display curses" Enter
-sleep 18
-tmux capture-pane -t qnx -p        # see the boot log + '#' esh prompt
-# send commands (one per line; esh does NOT support ';' or '&&'):
-tmux send-keys -t qnx "pidin" Enter
-tmux kill-session -t qnx           # stop the VM
-```
+## 1. Build the image (outside this repo)
 
-`/proc/boot` contains: `procnto-instr`, `devb-eide`, `devc-con`, `devc-pty`,
-`devn-ne2000.so`, `libsocket.so`, `ifconfig`, `ping`, `dhcp.client`, `tftp`,
-`tftpd`, **`qconn`**, **`pidin`**.
-
-## Findings (2026-06: actual run on this machine)
-
-QEMU 8.2.2, `qemu-system-i386`, image booted to the `esh` shell. Verified:
-
-- ✅ **QNX 6.4.0 boots** and reaches `# ` (esh).
-- ✅ **`qconn` runs**: `qconn` then `pidin` shows pid 57353 with 4 threads in the
-  normal idle states (`SIGWAITINFO`/`CONDVAR`/`RECEIVE`).
-- ✅ **`pidin` works** and prints a real process/thread listing.
-- ❌ **qconn is NOT reachable over TCP.** A host connection to the forwarded port
-  is accepted by QEMU but the guest never sends the `QCONN` banner, and `/dev`
-  has **no socket/network resource manager** (no `io-net`, no `io-pkt`, no
-  `en0`, no `/dev/socket`). The boot log confirms it: `Unable to start "io-net"
-  (2)` (ENOENT) — the image ships the NE2000 *driver* (`devn-ne2000.so`) and
-  `libsocket`, but **no TCP/IP stack binary**.
-
-**Conclusion:** this open image cannot exercise the qconn *wire protocol*,
-because qconn needs a TCP/IP stack (`io-net` on 6.4) that is a **closed QNX
-binary absent from openqnx**. It can't be injected without a network (the guest
-has `tftp`/`tftpd` but no stack to use them — chicken-and-egg) or the QNX
-`mkifs` tooling to rebuild the IFS.
-
-So the MCP server's protocol has been validated end-to-end against the
-[mock](../internal/mockqnx) (Tier A), and this Tier B confirms a real `qconn`
-binary boots and runs — but full wire validation needs one of:
-
-1. An `io-net` (QNX 6.4) binary from a **Momentics 6.4** install added to the
-   image (then start it at the esh prompt: `io-net -di ne2000`, `ifconfig en0
-   10.0.2.15 up`, `qconn`), or a Momentics-built IFS that includes `io-pkt`.
-2. A **real QNX 8 target** (or QNX 7.x eval image) running `qconn`.
-
-Once a live qconn is reachable, run the wire check:
+Build in a scratch directory so no image artifacts land in the repo:
 
 ```bash
-QCONN=127.0.0.1:18000 ./live-smoke.sh   # drives qconn-mcp tools over Streamable HTTP
+mkdir -p ~/qnx8-qemu && cd ~/qnx8-qemu
+source ~/qnx800/qnxsdp-env.sh
+mkqnximage --type=qemu --arch=x86_64 --ssh-ident=$HOME/.ssh/id_ed25519.pub --noprompt
+# produces output/disk-qemu.vmdk and output/ifs.bin
 ```
 
-The `--trace` logs (written to `/tmp/qconn-mcp-live.log`) and `qconn-proxy`
-help validate the `pidin` parsers and the pdebug launch model against real
-output.
+## 2. Boot it
 
-## Provenance
+[`run-qnx.sh`](run-qnx.sh) boots the `mkqnximage` output with user-mode
+networking and host→guest port-forwards (no root/bridge needed):
 
-Images copied from `vocho/openqnx` @ master:
-
+```bash
+IMGDIR=~/qnx8-qemu/output ./run-qnx.sh
+# qconn  -> host 127.0.0.1:18000
+# pdebug -> host 127.0.0.1:18001   (for the debug tools)
+# ssh    -> host 127.0.0.1:18022
 ```
-qnxfs.img  sha256 9571161f47c059124a1fca8427c1a3322bebfc7032e186bcbf585d2c5f94a6db
-qnx.ifs    sha256 b169376e9a9cc914035068a7133c4e6a1d66d5755f498775532f1cd0a300cdb6
+
+The VM boots headless (serial log in `$IMGDIR/qemu.out`); QNX auto-starts `qconn`.
+
+## 3. Drive qconn-mcp against it
+
+```bash
+QCONN=127.0.0.1:18000 ./live-smoke.sh
+# or run the server directly (debug port must match the forward):
+./bin/qconn-mcp --qconn-host 127.0.0.1 --qconn-port 18000 --debug-port 18001 --bind 127.0.0.1:8077
 ```
 
-(Not committed — see `.gitignore`. Re-download from openqnx if needed.)
+Verified working against this VM: `qconn_system_info` (→ `OS=nto RELEASE=8.0.0
+CPU=x86_64`), `qconn_system_memory`, `qconn_exec` (`uname -a`, `pidin`),
+`qconn_list_processes`, and the DSMSG debug path (`qconn_debug_attach` →
+`qconn_debug_read_registers` / `qconn_debug_mapinfo` → `qconn_debug_detach`).
+
+> The decoded registers from `qconn_debug_read_registers` use the **AArch64**
+> layout, so on this **x86-64** guest the decoded fields are not meaningful (the
+> raw block and the DSMSG transport are correct). x86-64 register decoding is a
+> follow-up.
+
+## aarch64 build hosts
+
+The QNX SDK host tools are x86-64 only. To run them on an aarch64 Linux host,
+register an x86-64 binfmt handler. **box64** works (it has built-in libc
+translation, unlike `qemu-user`, which would also need an x86-64 glibc tree):
+
+```bash
+sudo sh -c 'echo ":box64:M::\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00:\xff\xff\xff\xff\xff\xfe\xfe\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:'"$(command -v box64)"':F" > /proc/sys/fs/binfmt_misc/register'
+```
+
+`mkqnximage` then runs unchanged. (The VM itself is x86-64 and runs under the
+native `qemu-system-x86_64`; box64 is only for the build tools.)
+
+## Why x86-64 and not aarch64?
+
+`mkqnximage --arch=aarch64le` builds everything but fails at the IFS step with
+`Host file 'startup-qemu-virt' not available`: the **base SDP 8.0 ships board
+startup binaries for x86-64 only** (`startup-x86`, `startup-apic`); the aarch64
+QEMU `virt` startup comes from a separate **BSP** package (installed via QNX
+Software Center, license required). With such a BSP added,
+`mkqnximage --type=qemu --arch=aarch64le --aarch64-version=8` would produce an
+aarch64 image that `qemu-system-aarch64` can run (with KVM on an aarch64 host).

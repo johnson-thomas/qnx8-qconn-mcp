@@ -188,8 +188,12 @@ Precedence: **YAML file < environment < flags.** See
   and a mock DSMSG debug responder, so the full tool surface — including the
   debug session — runs end to end. `go test ./...` drives the client and debug
   bridge against it in-process.
+- **QNX 8 in QEMU (no hardware).** Build a QNX 8 VM from the QNX SDK with
+  `mkqnximage` and run it under QEMU; `qconn` serves the wire protocol over a
+  forwarded port. See [`qemu-test/`](qemu-test/). No image is committed — you
+  build it locally from your licensed SDK.
 - **Real QNX 8 hardware.** Start `qconn` on the board and point the server at its
-  IP. The debug tools (attach, breakpoints, single-step, register/memory
+  IP. The debug tools (attach, launch, breakpoints, single-step, register/memory
   read/write, threads, detach) are validated against real QNX 8 `pdebug`.
 
 ---
