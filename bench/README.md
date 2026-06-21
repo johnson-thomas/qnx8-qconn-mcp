@@ -23,10 +23,6 @@ qcc -Vgcc_ntox86_64    -O2 -o qnxbench qnxbench.c     # x86-64 target
 qnxbench [-t threads] [-i iters_millions]             # default: online CPUs, 100M
 ```
 
-The benchmark is written to **MISRA C:2023** with a small set of documented
-deviations appropriate for a host-side diagnostic tool (no-`<stdio.h>`, the
-`void*` pthread callback cast) — see the header comment in `qnxbench.c`.
-
 ## Behaviour: real aarch64 vs emulated x86-64 QEMU
 
 Representative run (your absolute numbers will vary with the host). Real QNX 8 on

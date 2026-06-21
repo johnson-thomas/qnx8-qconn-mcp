@@ -12,15 +12,6 @@
  *     qcc -Vgcc_ntox86_64    -O2 -o qnxbench qnxbench.c
  *
  * Usage: qnxbench [-t threads] [-i iters_millions]
- *
- * MISRA C:2023: checked with the safety-* clang-tidy checks. Remaining findings,
- * all accepted (this is a host-side diagnostic tool, not production embedded
- * code):
- *   - Rule 21.6 (no <stdio.h>): the tool's purpose is to print results.
- *   - Rule 11.5 (void* -> object*): required by the pthread_create callback ABI.
- *   - Rule 22.10 (errno test): errno is set to 0 before strtoull and tested
- *     immediately after (so 22.8/22.9 hold); the 22.10 flag here is a checker
- *     over-approximation.
  */
 #include <errno.h>
 #include <inttypes.h>
@@ -66,7 +57,7 @@ static double now_seconds(void) {
 }
 
 static void *worker(void *arg) {
-    worker_t *self = (worker_t *)arg; /* Rule 11.5 deviation: pthread ABI */
+    worker_t *self = (worker_t *)arg;
     const double start = now_seconds();
     uint64_t acc = UINT64_C(0x123456789abcdef);
     for (uint64_t i = 0; i < self->iters; ++i) {
@@ -117,7 +108,7 @@ static uint64_t parse_u64(const char *text) {
     unsigned long long value = 0;
     errno = 0;
     value = strtoull(text, &end, 10);
-    if (errno != 0) { /* test errno alone, immediately after the errno-setting call */
+    if (errno != 0) {
         return 0;
     }
     if ((end == text) || (*end != '\0')) {
@@ -163,7 +154,6 @@ int main(int argc, char *argv[]) {
     const double speedup = parallel_mips / single_mips;
     const double efficiency = speedup / (double)threads;
 
-    /* Rule 21.6 deviation: reporting results is this tool's purpose. */
     (void)printf("qnxbench: %s %s %s, online CPUs=%ld\n", uts.sysname, uts.release,
                  uts.machine, online);
     (void)printf("  work:      %" PRIu64 "M iters/thread, threads=%d\n", iter_millions,
